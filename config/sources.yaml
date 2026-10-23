@@ -1,0 +1,20 @@
+# Official source page per data set. Record the working URL here if CMS moves a page.
+cms_asp:
+  page: https://www.cms.gov/medicare/payment/part-b-drugs/asp-pricing-files
+  note: Quarterly. "Payment limit" is already 106% of ASP. Do not add 6% again.
+cms_crosswalk:
+  page: https://www.cms.gov/medicare/payment/part-b-drugs/asp-pricing-files
+fda_ndc:
+  page: https://www.fda.gov/drugs/drug-approvals-and-databases/national-drug-code-directory
+nadac:
+  page: https://data.medicaid.gov
+nppes:
+  page: https://download.cms.gov/nppes/NPI_Files.html
+hospital_enrollments:
+  page: https://data.cms.gov/provider-characteristics/hospitals-and-other-facilities/hospital-enrollments
+partb_spending:
+  page: https://data.cms.gov/summary-statistics-on-use-and-payments/medicare-medicaid-spending-by-drug/medicare-part-b-spending-by-drug
+hospital_list:
+  page: https://data.cms.gov/provider-data
+hpt_template:
+  page: https://github.com/CMSgov/hospital-price-transparency

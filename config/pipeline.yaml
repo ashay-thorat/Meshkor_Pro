@@ -1,0 +1,26 @@
+# Paths are relative to the project folder (infusion-audit/).
+paths:
+  raw: data/raw
+  ref: data/ref          # reference tables (ASP, crosswalk)
+  hpt_norm: data/hpt/norm  # normalized hospital drug rates
+  mart: data/mart        # comparison table used by the API
+
+# Markup multiples outside this range are flagged "review_range".
+# They are often unit errors. A person checks them before publishing.
+review_range:
+  low: 0.5
+  high: 20.0
+
+# Benchmark quarter for each hospital file:
+#   file_date -> ASP quarter that contains the file's last_updated_on date
+#               (falls back to the latest loaded quarter)
+#   latest    -> always the latest loaded ASP quarter
+benchmark_quarter: file_date
+
+# Hospital rows that give no drug unit are NOT converted (status
+# unit_unresolved). Set true only after a reviewer confirms that a hospital
+# prices per one HCPCS billing unit.
+assume_hcpcs_unit_when_missing: false
+
+# Hospital systems whose files are not parsed yet.
+skip_systems: []

@@ -1,0 +1,10 @@
+# data stays out of Git (large; re-download from config/sources.yaml)
+data/
+reports/
+*.part
+__pycache__/
+.pytest_cache/
+frontend/node_modules/
+frontend/dist/
+.venv/
+*.sqlite3

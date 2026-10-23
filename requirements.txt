@@ -1,0 +1,12 @@
+polars>=1.0
+duckdb>=1.0
+pyarrow>=15
+fastexcel>=0.11
+openpyxl>=3.1
+ijson>=3.2
+pyyaml>=6
+requests>=2.31
+django>=5.0
+djangorestframework>=3.15
+django-cors-headers>=4.3
+pytest>=8
