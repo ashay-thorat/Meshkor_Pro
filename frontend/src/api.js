@@ -1,15 +1,42 @@
 import { useEffect, useState } from "react";
 
+/** Called when the server says the session has ended (set by AuthProvider). */
+let onLoggedOut = () => {};
+export function setLoggedOutHandler(fn) { onLoggedOut = fn; }
+
 export async function getJSON(path, params) {
   const qs = params ? "?" + new URLSearchParams(clean(params)).toString() : "";
-  const res = await fetch(`/api/${path}${qs}`);
+  const res = await fetch(`/api/${path}${qs}`, { credentials: "same-origin" });
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(body.error || `${res.status} ${res.statusText}`);
+  if ((res.status === 401 || res.status === 403) && path !== "auth/me") onLoggedOut();
+  if (!res.ok) throw new Error(body.error || body.detail || `${res.status} ${res.statusText}`);
+  return body;
+}
+
+function csrfToken() {
+  const m = document.cookie.match(/(?:^|; )csrftoken=([^;]+)/);
+  return m ? decodeURIComponent(m[1]) : "";
+}
+
+export async function postJSON(path, payload = {}) {
+  const res = await fetch(`/api/${path}`, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json", "X-CSRFToken": csrfToken() },
+    body: JSON.stringify(payload),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || body.detail || `${res.status} ${res.statusText}`);
   return body;
 }
 
 export function csvUrl(params) {
   return `/api/rates.csv?${new URLSearchParams(clean(params)).toString()}`;
+}
+
+export function pdfUrl(params = {}) {
+  const qs = new URLSearchParams(clean(params)).toString();
+  return `/api/report.pdf${qs ? "?" + qs : ""}`;
 }
 
 function clean(p) {
@@ -42,7 +69,12 @@ export const fmt = {
 export const STATUS_TEXT = {
   ok: "Compared",
   review_range: "Check by hand (outside 0.5×–20×)",
+  unit_ambiguous: "Unit ambiguous (vial or per unit?)",
   unit_unresolved: "Unit not convertible",
+  unit_conflict: "NDC and description disagree",
+  not_drug_price: "Same $ for many drugs (not a drug price)",
+  discarded_drug: "Discarded drug (waste line)",
+  study_drug: "Clinical-trial study drug",
   billing_unit_mismatch: "ASP unit differs from config",
   no_benchmark: "No ASP benchmark",
   percent_of_charges: "% of charges only",

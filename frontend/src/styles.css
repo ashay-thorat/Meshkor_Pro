@@ -72,8 +72,9 @@ tbody tr:hover { background: var(--accent-soft); }
 .pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px;
   white-space: nowrap; background: var(--info-bg); color: var(--info-fg); }
 .s-ok { background: var(--ok-bg); color: var(--ok-fg); }
-.s-review_range { background: var(--warn-bg); color: var(--warn-fg); }
-.s-unit_unresolved, .s-billing_unit_mismatch, .s-no_benchmark { background: var(--bad-bg); color: var(--bad-fg); }
+.s-review_range, .s-unit_ambiguous { background: var(--warn-bg); color: var(--warn-fg); }
+.s-unit_unresolved, .s-billing_unit_mismatch, .s-no_benchmark, .s-unit_conflict,
+.s-not_drug_price, .s-discarded_drug, .s-study_drug { background: var(--bad-bg); color: var(--bad-fg); }
 
 .filters { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
 select, input, button, .button { font: inherit; font-size: 13px; padding: 6px 10px;
@@ -89,3 +90,32 @@ button:disabled { opacity: .4; }
 .prose h2 { margin-top: 22px; }
 .prose li { margin: 4px 0; }
 ul.plain { list-style: none; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* login */
+.login-wrap { min-height: 100vh; display: grid; place-items: center; padding: 16px; }
+.login { width: 100%; max-width: 360px; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 12px; padding: 24px; display: flex; flex-direction: column; gap: 14px; }
+.login label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+.login input { min-width: 0; font-size: 14px; padding: 8px 10px; }
+.login .button { padding: 9px; cursor: pointer; }
+
+/* user menu */
+.usermenu { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.usermenu button { cursor: pointer; }
+.role-admin { background: var(--info-bg); color: var(--info-fg); }
+.role-reviewer { background: var(--ok-bg); color: var(--ok-fg); }
+.role-viewer { background: var(--accent-soft); color: var(--accent); }
+
+/* sign-off panel */
+.signoff { border-left: 4px solid var(--hot); }
+.signoff.is-signed { border-left-color: var(--ok-fg); }
+.signoff-row { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; align-items: center; }
+.signoff-state { font-weight: 600; }
+.is-draft .signoff-state { color: var(--bad-fg); }
+.is-signed .signoff-state { color: var(--ok-fg); }
+.signoff-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.signoff-actions button { cursor: pointer; }
+.signoff-confirm { margin-top: 12px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.signoff-confirm p { flex-basis: 100%; margin: 0; color: var(--muted); font-size: 13px; }
+.signoff-confirm button { cursor: pointer; }
+.button.secondary { background: var(--panel); color: var(--accent); }

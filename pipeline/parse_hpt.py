@@ -85,26 +85,48 @@ def iter_sources(path: Path) -> Iterator[tuple[str, callable]]:
 
 # ---------- JSON ----------
 
+BOM = b"\xef\xbb\xbf"
+
+
+def _no_bom(fh):
+    """Skip a UTF-8 byte order mark. ijson rejects files that start with one."""
+    br = fh if hasattr(fh, "peek") else io.BufferedReader(fh)
+    if br.peek(3)[:3] == BOM:
+        br.read(3)
+    return br
+
+
 def parse_json(opener, scope: Scope, stats: dict) -> Iterator[dict]:
     """Two streaming passes: header fields, then items. Memory stays small."""
     header: dict = {}
-    with opener() as fh:
+    with opener() as raw:
+        fh = _no_bom(raw)
+        top_keys, found = [], False
         for prefix, event, value in ijson.parse(fh):
             if prefix == "standard_charge_information" and event == "start_array":
+                found = True
                 break
+            if prefix == "" and event == "map_key":
+                top_keys.append(value)
             if "." not in prefix and event in ("string", "number", "boolean"):
                 header[prefix] = value
+    if not found:
+        stats["format"] = "json_unrecognized"
+        stats["error"] = f"no standard_charge_information array; top-level keys: {top_keys[:20]}"
+        return
     stats["hospital_name"] = header.get("hospital_name")
     stats["file_last_updated"] = header.get("last_updated_on")
     stats["cms_version"] = header.get("version")
     stats["format"] = "json"
-    with opener() as fh:
-        yield from _json_items(fh, scope, stats)
+    with opener() as raw:
+        yield from _json_items(_no_bom(raw), scope, stats)
 
 
 def _json_items(fh, scope: Scope, stats: dict) -> Iterator[dict]:
     for item in ijson.items(fh, "standard_charge_information.item", use_float=True):
         stats["items_scanned"] += 1
+        if stats["first_item_keys"] is None:
+            stats["first_item_keys"] = ",".join(sorted(item))
         codes = [(str(c.get("code", "")), str(c.get("type", "")))
                  for c in item.get("code_information", []) or []]
         hcpcs, ndc, via = scope.match(codes)
@@ -135,9 +157,9 @@ def _json_items(fh, scope: Scope, stats: dict) -> Iterator[dict]:
                     **common,
                     "payer_name": pi.get("payer_name"),
                     "plan_name": pi.get("plan_name"),
-                    "negotiated_dollar": to_float(pi.get("standard_charge_dollar")),
-                    "negotiated_percentage": to_float(pi.get("standard_charge_percentage")),
-                    "negotiated_algorithm": pi.get("standard_charge_algorithm"),
+                    "negotiated_dollar": to_float(pi.get("standard_charge_dollar", pi.get("negotiated_dollar"))),
+                    "negotiated_percentage": to_float(pi.get("standard_charge_percentage", pi.get("negotiated_percentage"))),
+                    "negotiated_algorithm": pi.get("standard_charge_algorithm", pi.get("negotiated_algorithm")),
                     "estimated_amount": to_float(pi.get("estimated_amount")),
                     "median_amount": to_float(pi.get("median_amount")),
                     "p10_amount": to_float(pi.get("10th_percentile")),
@@ -301,7 +323,7 @@ def parse_file(system: str, path: Path, scope: Scope, locations: str) -> tuple[l
         stats = {"system": system, "source_file": rel(path), "source_member": label,
                  "source_sha256": digest, "locations": locations, "items_scanned": 0,
                  "format": None, "error": None, "hospital_name": None,
-                 "file_last_updated": None, "cms_version": None}
+                 "file_last_updated": None, "cms_version": None, "first_item_keys": None}
         out = []
         try:
             with opener() as fh:

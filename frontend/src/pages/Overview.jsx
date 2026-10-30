@@ -1,12 +1,14 @@
 import { Link } from "react-router-dom";
 import { fmt, useApi } from "../api.js";
 import { Loading, MarkupBars, Stat, StatusPill, Table } from "../components.jsx";
+import SignoffPanel from "../signoff.jsx";
 
 export default function Overview() {
   const meta = useApi("meta");
   const drugs = useApi("drugs");
   return (
     <>
+      <SignoffPanel />
       <Loading state={meta}>
         {(m) => (
           <section>

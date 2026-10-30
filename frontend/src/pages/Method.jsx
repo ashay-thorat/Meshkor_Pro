@@ -17,8 +17,11 @@ export default function Method() {
 
       <h2>The calculation</h2>
       <ol>
-        <li>Read the quantity the hospital priced (for example 100 mg) from the file's drug
-          unit fields.</li>
+        <li>Read the quantity the hospital priced (for example 100 mg). Sources, in order: the
+          file's drug unit fields; the row's NDC through the CMS NDC-HCPCS crosswalk (billing
+          units per package) or the FDA NDC Directory (strength × package size); the strength in
+          the hospital's own description. When the NDC and the description disagree, the row is
+          held for review.</li>
         <li>Divide by the HCPCS billing unit (for example 10 mg for infliximab) to get billing
           units. 100 mg ÷ 10 mg = 10 units.</li>
         <li>Price per billing unit = hospital rate ÷ billing units.</li>
@@ -32,6 +35,17 @@ export default function Method() {
       </ul>
       <p>A row whose unit cannot be converted is shown but never priced. Markups below 0.5× or
         above 20× are held for a manual check, because they are usually unit errors.</p>
+      <p>Three rules remove rows that are not drug prices: a payer and plan that post the same
+        dollar amount for three or more different drugs in one file (a flat case rate or
+        placeholder), drug waste lines (DISCARD in the text or a JW modifier), and clinical-trial
+        study drug lines (STUDY DRUG in the text).</p>
+      <p>When a row has an NDC and its description only repeats the HCPCS code text (for example
+        "INJECTION, DENOSUMAB, 1 MG"), the NDC gives the product size.</p>
+      <p>Many hospitals post the package size (for example a 100 mg vial) while the price is
+        per one HCPCS billing unit. When a row only fits the benchmark under that second reading,
+        it is marked "Unit ambiguous" and both markups are shown. It is not counted until a
+        reviewer has checked sample rows for that hospital system and accepted the per-unit
+        reading in <code>config/pipeline.yaml</code>.</p>
 
       <h2>Limits</h2>
       <ul>

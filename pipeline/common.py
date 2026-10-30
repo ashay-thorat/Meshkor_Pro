@@ -13,7 +13,9 @@ import yaml
 PROJECT = Path(__file__).resolve().parent.parent
 
 HCPCS_RE = re.compile(r"^[A-Z0-9]\d{3}[A-Z0-9]$")
-MONTH_TO_Q = {"january": 1, "april": 2, "july": 3, "october": 4}
+MONTH_TO_Q = {"january": 1, "april": 2, "july": 3, "october": 4,
+              "jan": 1, "apr": 2, "jul": 3, "oct": 4}
+_MONTHS = r"(january|april|july|october|jan|apr|jul|oct)"
 
 
 def load_yaml(name: str) -> dict:
@@ -53,10 +55,15 @@ def rel(path: Path) -> str:
 def quarter_from_filename(name: str) -> str | None:
     """'october_2026_..._payment_limit...' -> '2026Q4'."""
     low = name.lower()
-    m = re.search(r"(january|april|july|october)[_\- ]?(20\d\d)", low)
-    if not m:
-        return None
-    return f"{m.group(2)}Q{MONTH_TO_Q[m.group(1)]}"
+    # month then year: october_2026, oct-2026, oct2026
+    m = re.search(_MONTHS + r"[_\- ]?(20\d\d)", low)
+    if m:
+        return f"{m.group(2)}Q{MONTH_TO_Q[m.group(1)]}"
+    # year then month: 2024-january, 2024_oct
+    m = re.search(r"(20\d\d)[_\- ]?" + _MONTHS + r"(?![a-z])", low)
+    if m:
+        return f"{m.group(1)}Q{MONTH_TO_Q[m.group(2)]}"
+    return None
 
 
 def quarter_bounds(q: str) -> tuple[date, date]:
@@ -175,6 +182,62 @@ def billing_units(hosp: Dose | None, billing: Dose) -> tuple[float | None, str]:
     if hosp.unit in {"ML", "EA"}:
         return None, f"hospital priced per {hosp.unit}; needs product concentration"
     return None, f"unit mismatch: hospital {hosp.unit} vs billing {billing.unit}"
+
+
+# ---------- strength read from the hospital's own description ----------
+
+_NUM = r"(\d+(?:\.\d+)?)"
+_CONC = re.compile(_NUM + r"\s*MG\s*/\s*" + r"(\d+(?:\.\d+)?)?\s*ML\b", re.I)   # 100 MG/4 ML, 25 MG/ML
+_MG = re.compile(_NUM + r"\s*MG\b", re.I)
+
+
+def strength_from_description(desc: object) -> dict:
+    """Read drug strength from text such as 'KEYTRUDA 25 MG/ML' or 'REMICADE 100 MG'.
+
+    Returns {'mg_per_ml': float|None, 'mg_each': float|None, 'text': matched text}.
+    The first concentration found is used. When the text holds two different
+    plain MG strengths, mg_each stays None (ambiguous).
+    """
+    out = {"mg_per_ml": None, "mg_each": None, "text": None}
+    if not desc:
+        return out
+    s = str(desc)
+    m = _CONC.search(s)
+    if m:
+        mg, ml = float(m.group(1)), float(m.group(2) or 1)
+        if ml > 0:
+            out.update(mg_per_ml=mg / ml, text=m.group(0))
+        return out
+    mgs = {float(x) for x in _MG.findall(s)}
+    if len(mgs) == 1:
+        v = mgs.pop()
+        out.update(mg_each=v, text=f"{v:g} MG")
+    return out
+
+
+def units_from_description(desc: object, drug_unit: object, drug_type: object,
+                           billing: Dose) -> tuple[float | None, str | None, str]:
+    """Billing units for rows priced per ML, per EA, or with no unit, using the description.
+
+    Returns (units, method, note). Only MG billing units are handled.
+    """
+    if billing.unit != "MG":
+        return None, None, "billing unit is not MG"
+    st = strength_from_description(desc)
+    t = (str(drug_type).strip().upper() if drug_type else "")
+    qty = to_float(drug_unit)
+    if t == "ML" and qty and st["mg_per_ml"]:
+        mg = qty * st["mg_per_ml"]
+        return (mg / billing.qty, "description_concentration",
+                f"{qty:g} ML x {st['mg_per_ml']:g} mg/ML ('{st['text']}') = {mg:g} mg")
+    if t == "EA" and qty and st["mg_each"]:
+        mg = qty * st["mg_each"]
+        return (mg / billing.qty, "description_strength",
+                f"{qty:g} EA x {st['mg_each']:g} mg ('{st['text']}') = {mg:g} mg")
+    if not t and st["mg_each"] is not None and st["mg_each"] == billing.qty:
+        return (1.0, "description_matches_hcpcs_unit",
+                f"no unit posted; description says '{st['text']}' = 1 billing unit")
+    return None, None, "strength not found in description"
 
 
 # ---------- payers ----------

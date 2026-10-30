@@ -153,13 +153,25 @@ def load_crosswalk(zip_path: Path, quarter: str) -> pl.DataFrame:
     def cell(r, i):
         return r[i].strip() if i is not None and i < len(r) else ""
 
-    out, bad_ndc = [], 0
+    out, bad_ndc, bad_examples = [], 0, []
     for r in rows:
         code = norm_hcpcs(cell(r, i_code))
         if code is None:
             continue
-        ndc = norm_ndc(cell(r, i_ndc))
+        raw_ndc = cell(r, i_ndc)
+        ndc = norm_ndc(raw_ndc)
+        # Older crosswalks are Excel files where the 11-digit NDC2 column is stored as a
+        # number, so leading zeros are lost ("6302602.0" for 00006302602). The column is
+        # defined as 11 digits, so padding a plain number back to 11 is safe here.
+        if ndc is None and re.fullmatch(r"\d{1,11}(\.0+)?", raw_ndc):
+            ndc = raw_ndc.split(".")[0].zfill(11)
+        if ndc is None and re.fullmatch(r"\d+(\.\d+)?[eE]\+?\d+", raw_ndc):
+            v = float(raw_ndc)                       # 6.302602E+06 from Excel
+            if v.is_integer() and v < 1e11:
+                ndc = str(int(v)).zfill(11)
         if ndc is None:
+            if len(bad_examples) < 8 and raw_ndc not in bad_examples:
+                bad_examples.append(raw_ndc)
             bad_ndc += 1
             continue
         out.append({
@@ -182,6 +194,8 @@ def load_crosswalk(zip_path: Path, quarter: str) -> pl.DataFrame:
     df = pl.DataFrame(out)
     print(f"  Crosswalk {quarter}: {len(df):,} NDC rows ({bad_ndc} rows with unusable NDC) "
           f"from {member}")
+    if bad_examples:
+        print(f"      NDC column '{header[i_ndc]}', unusable examples: {bad_examples}")
     return df
 
 
@@ -191,7 +205,9 @@ def classify(zip_path: Path) -> str | None:
         return None
     if "crosswalk" in n:
         return "crosswalk"
-    if "payment_limit" in n or "payment-limit" in n or "asp_pricing" in n or "pricing_file" in n:
+    if "noc" in re.split(r"[^a-z]+", n):
+        return None          # Not Otherwise Classified pricing file: not used
+    if any(k in n for k in ("payment_limit", "payment-limit", "payment limit", "pricing")):
         return "asp"
     return None
 

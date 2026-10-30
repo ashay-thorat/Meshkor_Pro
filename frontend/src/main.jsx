@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import { BrowserRouter, NavLink, Route, Routes } from "react-router-dom";
 
 import "./styles.css";
+import { AuthProvider, LoginPage, useAuth } from "./auth.jsx";
 import Overview from "./pages/Overview.jsx";
 import DrugDetail from "./pages/DrugDetail.jsx";
 import Hospitals from "./pages/Hospitals.jsx";
@@ -11,7 +12,12 @@ import Rates from "./pages/Rates.jsx";
 import Quality from "./pages/Quality.jsx";
 import Method from "./pages/Method.jsx";
 
+const ROLE_TEXT = { admin: "Admin", reviewer: "Reviewer", viewer: "Viewer" };
+
 function Shell() {
+  const { user, checked, logout } = useAuth();
+  if (!checked) return <div className="note">Loading…</div>;
+  if (!user) return <LoginPage />;
   return (
     <div className="shell">
       <header className="top">
@@ -29,6 +35,12 @@ function Shell() {
           <NavLink to="/quality">Data quality</NavLink>
           <NavLink to="/method">Method</NavLink>
         </nav>
+        <div className="usermenu">
+          <span>{user.name}</span>
+          <span className={`pill role-${user.role}`}>{ROLE_TEXT[user.role] || user.role}</span>
+          {user.is_admin && <a href="/admin/" target="_blank" rel="noreferrer">Users</a>}
+          <button onClick={logout}>Sign out</button>
+        </div>
       </header>
       <main>
         <Routes>
@@ -46,5 +58,5 @@ function Shell() {
 }
 
 ReactDOM.createRoot(document.getElementById("root")).render(
-  <BrowserRouter><Shell /></BrowserRouter>
+  <BrowserRouter><AuthProvider><Shell /></AuthProvider></BrowserRouter>
 );

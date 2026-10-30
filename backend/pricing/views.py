@@ -19,10 +19,12 @@ HEADLINE = "price_type = 'negotiated_dollar' AND status = 'ok'"
 RATE_COLUMNS = [
     "hospital_label", "system", "hcpcs", "drug_name", "description", "setting",
     "payer_group", "payer_name", "plan_name", "price_type", "price", "drug_unit",
-    "drug_unit_type", "billing_units", "price_per_billing_unit", "benchmark_quarter",
-    "asp_payment_limit", "markup_multiple", "pct_over_asp", "status", "unit_note",
+    "drug_unit_type", "billing_units", "unit_method", "price_per_billing_unit", "benchmark_quarter",
+    "asp_payment_limit", "markup_multiple", "alt_markup_per_unit", "pct_over_asp", "status",
+    "unit_note",
     "negotiated_percentage", "methodology", "ndc11", "matched_via", "reviewed",
-    "file_last_updated", "source_file", "source_member", "source_sha256", "hospital_key",
+    "file_last_updated", "duplicate_count", "source_file", "source_member", "source_sha256",
+    "hospital_key",
 ]
 SORTABLE = {"markup_multiple", "price_per_billing_unit", "price", "hospital_label",
             "payer_group", "drug_name", "status"}
@@ -238,3 +240,21 @@ def quality(request):
     except data.DataMissing as e:
         return _missing(e)
     return Response(rows)
+
+
+@api_view(["GET"])
+def report_pdf(request):
+    from .auth_views import signoff_status
+    from .report import build_pdf
+    codes = [c.strip().upper() for c in request.GET.get("hcpcs", "").split(",") if c.strip()]
+    try:
+        status = signoff_status()
+        pdf = build_pdf(status, codes or None,
+                        user=request.user.get_full_name() or request.user.username)
+    except data.DataMissing as e:
+        return _missing(e)
+    tag = "signed" if status["signed"] else "DRAFT"
+    name = f"ohio_infusion_markup_report_{status['generated_at'][:10]}_{tag}.pdf"
+    resp = HttpResponse(pdf, content_type="application/pdf")
+    resp["Content-Disposition"] = f'attachment; filename="{name}"'
+    return resp

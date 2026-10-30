@@ -49,6 +49,9 @@ def test_quarter_and_payer():
     assert quarter_from_filename("october_2026_medicare_part_b_payment_limit_file.zip") == "2026Q4"
     assert quarter_from_filename("january_2026_ndc_hcpcs_crosswalk_updated_033026.zip") == "2026Q1"
     assert quarter_from_filename("2026-2027-seasonal-vaccine.zip") is None
+    assert quarter_from_filename("jan-2024-asp-pricing-file.zip") == "2024Q1"
+    assert quarter_from_filename("2025-october-asp-ndc-hcpcs-crosswalk.zip") == "2025Q4"
+    assert quarter_from_filename("oct2025_payment_limit.zip") == "2025Q4"
     assert payer_group("Anthem Blue Cross") == "Anthem"
     assert payer_group("UMR") == "UnitedHealthcare"
     assert payer_group(None) == "Not stated"
@@ -82,7 +85,7 @@ def test_asp_loaded(built):
 
 def test_crosswalk_ndc_11(built):
     xw = pl.read_parquet(built / "data/ref/ref_crosswalk.parquet")
-    assert set(xw["ndc11"]) == {"00006302602", "57894003001"}
+    assert set(xw["ndc11"]) == {"00006302602", "57894003001", "00003021001", "55513071001"}
 
 
 def test_tall_dollar_rate(built):
@@ -97,7 +100,8 @@ def test_tall_dollar_rate(built):
 
 
 def test_ten_mg_billing_unit(built):
-    r = _one(_cmp(built), hcpcs="J1745", price_type="negotiated_dollar")
+    r = _one(_cmp(built), hcpcs="J1745", price_type="negotiated_dollar",
+             description="REMICADE 100MG")
     # 2000 for 100 mg = 10 billing units of 10 mg -> 200 per unit; ASP 40 -> 5.0x
     assert r["billing_units"] == 10
     assert r["markup_multiple"] == pytest.approx(5.0)
@@ -115,9 +119,9 @@ def test_percent_only_and_estimate(built):
 
 def test_unresolved_units_are_not_priced(built):
     df = _cmp(built)
-    op = _one(df, hcpcs="J9299", price_type="negotiated_dollar")
+    op = _one(df, hcpcs="J9299", price_type="negotiated_dollar", description="OPDIVO")
     assert op["status"] == "unit_unresolved" and op["markup_multiple"] is None
-    den = _one(df, hcpcs="J0897", price_type="negotiated_dollar")
+    den = _one(df, hcpcs="J0897", price_type="negotiated_dollar", description="DENOSUMAB SYR")
     assert den["status"] == "unit_unresolved" and "ML" in den["unit_note"]
 
 
@@ -128,9 +132,19 @@ def test_ndc_only_row_matched_through_crosswalk(built):
 
 
 def test_out_of_range_flagged(built):
-    r = _one(_cmp(built), hcpcs="J2350", price_type="negotiated_dollar")
-    assert r["markup_multiple"] == pytest.approx(0.01)
+    r = _one(_cmp(built), hcpcs="J2350", price_type="negotiated_dollar",
+             description="OCREVUS 300MG")
+    # 3 for 300 mg: 0.0001x as posted, 0.03x even per unit -> plain review_range
+    assert r["markup_multiple"] == pytest.approx(0.0001)
     assert r["status"] == "review_range"
+
+
+def test_unit_ambiguous_keeps_both_readings(built):
+    r = _one(_cmp(built), description="KEYTRUDA 25 MG/ML VIAL", price_type="negotiated_dollar")
+    # as posted: 66 / 100 mg / 60 = 0.011x; if 66 is per 1 mg: 1.1x
+    assert r["status"] == "unit_ambiguous"
+    assert r["markup_multiple"] == pytest.approx(0.011)
+    assert r["alt_markup_per_unit"] == pytest.approx(1.1)
 
 
 def test_wide_csv(built):
@@ -164,3 +178,128 @@ def test_non_drug_rows_and_part_files_skipped(built):
     q = pl.read_parquet(built / "data/hpt/norm/hpt_file_quality.parquet")
     assert not any(s.endswith(".part") for s in q["source_file"])
     assert q["error"].null_count() == len(q)
+
+
+# ---------- strength from the hospital description ----------
+
+def test_strength_parser():
+    from pipeline.common import strength_from_description as sd
+    assert sd("KEYTRUDA 25 MG/ML INTRAVENOUS SOLUTION")["mg_per_ml"] == 25
+    assert sd("OPDIVO 240 MG/24 ML INTRAVENOUS SOLUTION")["mg_per_ml"] == 10
+    assert sd("PEMBROLIZUMAB 100 MG/4ML IV SOLN")["mg_per_ml"] == 25
+    x = sd("XGEVA 120 MG/1.7 ML (70 MG/ML) SUBCUTANEOUS SOLUTION")["mg_per_ml"]
+    assert 1.7 * x == pytest.approx(120)
+    assert sd("REMICADE 100 MG INTRAVENOUS SOLUTION")["mg_each"] == 100
+    assert sd("INJ DENOSUMAB 1 MG")["mg_each"] == 1
+    assert sd("Inj pembrolizumab") == {"mg_per_ml": None, "mg_each": None, "text": None}
+    assert sd("DRUG 100 MG OR 200 MG")["mg_each"] is None        # two strengths: ambiguous
+
+
+def test_per_ml_row_uses_concentration(built):
+    r = _one(_cmp(built), description="KEYTRUDA 25 MG/ML SOLN", price_type="negotiated_dollar")
+    # 4 ML x 25 mg/ML = 100 mg; 24000 / 100 = 240 per mg; / 60 = 4.0
+    assert r["unit_method"] == "description_concentration"
+    assert r["billing_units"] == 100
+    assert r["markup_multiple"] == pytest.approx(4.0)
+
+
+def test_per_vial_row_uses_strength(built):
+    r = _one(_cmp(built), description="REMICADE 100 MG VIAL", price_type="negotiated_dollar")
+    # 1 EA x 100 mg = 10 billing units of 10 mg; 3000 / 10 = 300; / 40 = 7.5
+    assert r["unit_method"] == "description_strength"
+    assert r["markup_multiple"] == pytest.approx(7.5)
+
+
+def test_no_unit_row_when_description_is_the_hcpcs_unit(built):
+    r = _one(_cmp(built), description="INJ DENOSUMAB 1 MG", price_type="negotiated_dollar")
+    assert r["unit_method"] == "description_matches_hcpcs_unit"
+    assert r["markup_multiple"] == pytest.approx(2.0)          # 40 / 1 / 20
+
+
+def test_posted_unit_marked(built):
+    r = _one(_cmp(built), description="REMICADE 100MG", price_type="negotiated_dollar")
+    assert r["unit_method"] == "posted_unit"
+
+
+def test_json_with_bom_is_read(built):
+    q = pl.read_parquet(built / "data/hpt/norm/hpt_file_quality.parquet")
+    row = q.filter(pl.col("source_member") == "bom__eeee5555.json").row(0, named=True)
+    assert row["error"] is None and row["drug_rows"] == 1 and row["cms_version"] == "3.0.0"
+
+
+
+def test_exact_repeats_are_folded(built):
+    r = _one(_cmp(built), description="REMICADE 100MG", price_type="negotiated_dollar")
+    assert r["duplicate_count"] == 2
+    g = _one(_cmp(built), description="REMICADE 100MG", price_type="gross_charge")
+    assert g["duplicate_count"] == 1      # gross/cash were already kept once per item
+
+
+
+# ---------- FDA / NADAC reference tables ----------
+
+def test_package_amount_and_strength():
+    from pipeline.load_drug import mg_per_package, package_amount
+    assert package_amount("1 VIAL, SINGLE-DOSE in 1 CARTON (0006-3026-02)  > 4 mL in 1 VIAL, "
+                          "SINGLE-DOSE") == (4.0, "ML")
+    assert package_amount("1 VIAL, SINGLE-USE in 1 CARTON (57894-030-01)") == (1.0, "VIAL")
+    assert package_amount("2 SYRINGE in 1 CARTON > 1.7 mL in 1 SYRINGE") == (3.4, "ML")
+    assert mg_per_package("25", "mg/mL", 4.0, "ML") == 100
+    assert mg_per_package("100", "mg/1", 1.0, "VIAL") == 100
+    assert mg_per_package("25", "mg/mL", 1.0, "VIAL") is None       # units do not fit
+    assert mg_per_package("25; 10", "mg/mL; mg/mL", 4.0, "ML") is None  # two ingredients
+
+
+def test_ref_drug_tables(built):
+    fda = pl.read_parquet(built / "data/ref/ref_drug_fda.parquet")
+    r = _one(fda, ndc11="00006302602")
+    assert r["mg_per_package"] == 100 and r["package_unit"] == "ML"
+    assert _one(fda, ndc11="57894003001")["mg_per_package"] == 100
+    nadac = pl.read_parquet(built / "data/ref/ref_nadac.parquet")
+    assert len(nadac) == 2 and nadac["ndc11"].str.len_chars().unique().to_list() == [11]
+    assert nadac["nadac_per_unit"].null_count() == 0
+
+
+# ---------- NDC units, conflict, flat rate, discarded ----------
+
+def test_ndc_only_row_uses_crosswalk_package(built):
+    r = _one(_cmp(built), description="KEYTRUDA VIAL", price_type="negotiated_dollar")
+    assert r["unit_method"] == "ndc_crosswalk" and r["billing_units"] == 100
+    assert r["markup_multiple"] == pytest.approx(2.0)
+
+
+def test_ndc_fda_concentration(built):
+    r = _one(_cmp(built), description="PEMBRO SOLN", price_type="negotiated_dollar")
+    assert r["unit_method"] == "ndc_fda_concentration" and r["billing_units"] == 100
+    assert r["markup_multiple"] == pytest.approx(4.0)
+
+
+def test_ndc_and_description_disagree(built):
+    r = _one(_cmp(built), description="KEYTRUDA 50 MG", price_type="negotiated_dollar")
+    assert r["status"] == "unit_conflict" and r["markup_multiple"] is None
+
+
+def test_flat_rate_across_drugs(built):
+    df = _cmp(built).filter((pl.col("payer_name") == "FlatCo")
+                            & (pl.col("price_type") == "negotiated_dollar"))
+    assert len(df) == 3 and set(df["status"]) == {"not_drug_price"}
+
+
+def test_discarded_drug_line(built):
+    r = _one(_cmp(built), description="DENOSUMAB 60 MG/ML|DISCARDED DRUG",
+             price_type="negotiated_dollar")
+    assert r["status"] == "discarded_drug"
+
+
+
+def test_description_restating_code_unit_uses_ndc(built):
+    r = _one(_cmp(built), description="INJECTION, DENOSUMAB, 1 MG", price_type="negotiated_dollar")
+    assert r["status"] == "ok" and r["unit_method"] == "ndc_crosswalk"
+    assert r["billing_units"] == 60
+    assert r["markup_multiple"] == pytest.approx(1.5)
+
+
+def test_study_drug_line(built):
+    r = _one(_cmp(built), description="STUDY DRUG - NIVOLUMAB 100 MG/10 ML",
+             price_type="negotiated_dollar")
+    assert r["status"] == "study_drug"

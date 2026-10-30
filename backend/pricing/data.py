@@ -55,5 +55,22 @@ def run_info() -> dict:
     return json.loads(f.read_text(encoding="utf-8"))
 
 
+_SHA_CACHE: dict[tuple, str] = {}
+
+
+def comparison_sha256() -> str:
+    """SHA-256 of comparison.parquet (cached by path, size and modified time)."""
+    f = files()["comparison"]
+    if not f.exists():
+        raise DataMissing("comparison.parquet not found. Run: python -m pipeline.run_all")
+    st = f.stat()
+    key = (str(f), st.st_size, st.st_mtime_ns)
+    if key not in _SHA_CACHE:
+        from pipeline.common import sha256
+        _SHA_CACHE.clear()
+        _SHA_CACHE[key] = sha256(f)
+    return _SHA_CACHE[key]
+
+
 def drug_config() -> dict[str, dict]:
     return {d["hcpcs"]: d for d in drugs_in_scope()}

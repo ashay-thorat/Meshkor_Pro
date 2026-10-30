@@ -1,9 +1,19 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { csvUrl, fmt, getJSON, PRICE_TYPE_TEXT, STATUS_TEXT } from "../api.js";
+import { csvUrl, fmt, getJSON, pdfUrl, PRICE_TYPE_TEXT, STATUS_TEXT } from "../api.js";
 import { StatusPill } from "../components.jsx";
 
 const PAGE = 50;
+const METHOD_TEXT = {
+  description_concentration: "from description (mg/ML)",
+  description_strength: "from description (mg per vial)",
+  description_matches_hcpcs_unit: "description = HCPCS unit",
+  reviewer_per_billing_unit: "reviewer: price per unit",
+  ndc_crosswalk: "CMS crosswalk (NDC)",
+  ndc_fda_concentration: "FDA NDC (mg/ML)",
+  ndc_fda_package: "FDA NDC (mg/package)",
+  assumed: "ASSUMED",
+};
 const PAYERS = ["", "Anthem", "UnitedHealthcare", "Aetna", "Cigna", "Medical Mutual", "Humana",
   "CareSource", "Molina", "Medicare Advantage", "Medicaid MCO", "Other", "Not stated", "All payers"];
 
@@ -52,6 +62,9 @@ export default function RatesTable({ fixed = {} }) {
         <input placeholder="Search hospital, payer, plan, description" value={f.q}
           onChange={set("q")} />
         <a className="button" href={csvUrl({ ...fixed, ...f })}>Export CSV</a>
+        <a className="button secondary" href={pdfUrl(fixed.hcpcs ? { hcpcs: fixed.hcpcs } : {})}
+          title="PDF report: rankings, hospital and payer tables, method, limits, sources">
+          Download PDF</a>
       </div>
       {res.error && <div className="note error">{res.error.message}</div>}
       <div className="table-wrap">
@@ -86,11 +99,15 @@ export default function RatesTable({ fixed = {} }) {
                   ? (r.negotiated_percentage != null ? `${r.negotiated_percentage}% of charges`
                     : "formula") : fmt.usd(r.price)}
                   <div className="muted">{PRICE_TYPE_TEXT[r.price_type]}</div></td>
-                <td className="num">{r.billing_units == null ? "—" : +r.billing_units.toFixed(3)}</td>
+                <td className="num">{r.billing_units == null ? "—" : +r.billing_units.toFixed(3)}
+                  {r.unit_method && r.unit_method !== "posted_unit" &&
+                    <div className="muted" title={r.unit_note}>{METHOD_TEXT[r.unit_method]}</div>}</td>
                 <td className="num">{fmt.usd(r.price_per_billing_unit)}</td>
                 <td className="num">{fmt.usd(r.asp_payment_limit)}
                   <div className="muted">{r.benchmark_quarter}</div></td>
-                <td className="num"><b>{fmt.x(r.markup_multiple)}</b></td>
+                <td className="num"><b>{fmt.x(r.markup_multiple)}</b>
+                  {r.status === "unit_ambiguous" && r.alt_markup_per_unit != null &&
+                    <div className="muted">per unit: {fmt.x(r.alt_markup_per_unit)}</div>}</td>
                 <td><StatusPill status={r.status} />
                   {r.status !== "ok" && r.unit_note && <div className="muted">{r.unit_note}</div>}</td>
               </tr>
